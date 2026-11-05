@@ -1,0 +1,19 @@
+{
+  "BLFX_AA_BRIDGE": {
+    "Settings": {
+      "GpsFallback": {
+        "Name": "GPS item with Play Animation off falls back",
+        "Hint": "When Play Animation is unticked on a Gambit's Premades item, let BLFX animate it, or Automated Animations if BLFX has nothing. When off, that item stays silent."
+      },
+      "AaCustomWins": {
+        "Name": "Customized AA item beats BLFX auto-rec",
+        "Hint": "An item with its own customized Automated Animations config keeps it instead of using BLFX auto-recognition. A hand-made BLFX animation on the item still wins."
+      },
+      "Debug": {
+        "Name": "Debug log",
+        "Hint": "Write to the browser console which engine took each item use."
+      }
+    },
+    "LookupFailed": "BLFX-AA Bridge could not read BLFX's animation lookup. Automated Animations will play alongside BLFX until the bridge is updated. See the console for details."
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "blfx-aa-bridge",
+  "title": "BLFX-AA Bridge",
+  "description": "Plays one animation per item use: CAT/GPS first, then BLFX, with Automated Animations as the fallback. New BLFX auto-rec entries take over from AA automatically.",
+  "version": "1.0.0",
+  "authors": [{ "name": "Valmont" }],
+  "url": "https://github.com/vicomte-de-valmont/blfx-aa-bridge",
+  "manifest": "https://github.com/vicomte-de-valmont/blfx-aa-bridge/releases/latest/download/module.json",
+  "download": "https://github.com/vicomte-de-valmont/blfx-aa-bridge/releases/download/v1.0.0/module.zip",
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.369",
+    "maximum": "14"
+  },
+  "esmodules": ["scripts/main.js"],
+  "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
+  "relationships": {
+    "systems": [
+      {
+        "id": "dnd5e",
+        "type": "system",
+        "compatibility": { "minimum": "6.0.0", "verified": "6.0.6" }
+      }
+    ],
+    "requires": [
+      { "id": "autoanimations", "type": "module" },
+      { "id": "boss-loot-assets-premium", "type": "module" }
+    ],
+    "recommends": [
+      { "id": "cat", "type": "module", "reason": "CAT and CPR animations take priority over BLFX." },
+      { "id": "gambits-premades", "type": "module", "reason": "GPS animations take priority over BLFX." }
+    ]
+  }
+}
