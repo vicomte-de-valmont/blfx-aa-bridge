@@ -22,6 +22,17 @@ The first rule that applies decides who animates:
 
 The bridge asks BLFX's own lookup at runtime, so entries added by BLFX updates take over from AA with nothing to maintain.
 
+## Order for effects and conditions
+
+This applies when an effect starts on a token:
+
+1. **CAT/GPS:** the effect has a CAT animation, or its source item is animated by CAT or GPS.
+2. **BLFX** has an effect animation for the source item.
+3. **BLFX Status Condition Animation:** the effect has no source item and is a condition BLFX knows, with that setting on.
+4. **AA Active Effects auto-rec.**
+
+A spell's cast and its lingering effect are decided separately, so BLFX can play the cast and AA the effect.
+
 ## Recommended settings
 
 | Module | Setting | Value |
@@ -38,9 +49,9 @@ The bridge asks BLFX's own lookup at runtime, so entries added by BLFX updates t
 
 ## Limits
 
-- It only handles item use. Conditions and effects can still animate twice, so pick either BLFX's Status Condition Animation or AA's Active Effects auto-rec for those.
+- BLFX's list of condition animations can't be read at runtime, so the bridge has its own copy. If BLFX adds a condition, AA keeps playing it too until the bridge is updated.
 - A hand-made BLFX animation on an item that CAT or GPS also animates plays alongside them. Set the CAT animation to None, or untick Play Animation.
-- It reads BLFX's internal `BlfxMacroExecutor.js`, which is not a public API. If a BLFX update changes it, the GM gets a warning and AA plays alongside BLFX until the bridge is updated.
+- It reads BLFX's internal `BlfxMacroExecutor.js`, which is not a public API, and follows BLFX's steps for finding an effect's source item. If a BLFX update changes these, AA can play alongside BLFX until the bridge is updated. If the file itself changes, the GM also gets a warning.
 
 ## Development
 

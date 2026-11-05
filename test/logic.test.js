@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chooseOverAa, gpsAnimationState, prepareItemUse, resolveWorkflow, BLFX_ID, GPS_ID } from '../scripts/logic.js';
+import {
+  chooseOverAa,
+  chooseOverAaForEffect,
+  gpsAnimationState,
+  prepareItemUse,
+  resolveEffectWorkflow,
+  resolveWorkflow,
+  BLFX_ID,
+  GPS_ID,
+} from '../scripts/logic.js';
 
 // Same lookup rules as BlfxMacroExecutor, driven by a small map of item name -> triggers.
 function fakeExecutor(map = {}) {
@@ -223,6 +232,118 @@ test('a BLFX lookup error leaves AA running', async () => {
     console.warn = warn;
   }
   assert.equal(data.stopWorkflow, undefined);
+});
+
+// Effect tests: an effect created by a spell points at its activity, as in dnd5e 6.
+const statusSet = (...statuses) => Object.assign(new Set(statuses), { first: () => statuses[0] });
+
+function makeSpellEffect({ name = 'Bless', flags = {}, effectFlags = {}, statuses = statusSet() } = {}) {
+  const { item, activity } = makeItem({ name, flags, activityType: 'utility', effects: 1 });
+  item.documentName = 'Item';
+  const effect = { name, flags: effectFlags, statuses, system: { origin: { activity: 'Activity.uuid' } } };
+  return { item, activity, effect, fromUuid: async uuid => (uuid === 'Activity.uuid' ? activity : null) };
+}
+
+const effectMatch = name => fakeExecutor({ [name]: { afterActiveEffects: { macro: play } } });
+
+test('effect from a spell goes to BLFX when BLFX has an effect animation', async () => {
+  const { effect, fromUuid } = makeSpellEffect();
+  const deps = makeDeps({ fromUuid, blfxConditions: () => true, executor: effectMatch('Bless') });
+  assert.equal(await chooseOverAaForEffect(effect, deps), 'BLFX');
+});
+
+test('effect from a spell stays with AA when BLFX only animates the cast', async () => {
+  const { effect, fromUuid } = makeSpellEffect();
+  const executor = fakeExecutor({ Bless: { afterItemUse: { macro: play } } });
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps({ fromUuid, blfxConditions: () => true, executor })), null);
+});
+
+test('a condition caused by a spell with no BLFX effect animation stays with AA', async () => {
+  const { effect, fromUuid } = makeSpellEffect({ name: 'Charmed', statuses: statusSet('charmed') });
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps({ fromUuid, blfxConditions: () => true })), null);
+});
+
+test('a condition with no source item goes to BLFX only if BLFX knows it and the setting is on', async () => {
+  const fromUuid = async () => null;
+  const charmed = { name: 'Charmed', flags: {}, statuses: statusSet('charmed') };
+  assert.equal(await chooseOverAaForEffect(charmed, makeDeps({ fromUuid, blfxConditions: () => true })), 'BLFX');
+  assert.equal(await chooseOverAaForEffect(charmed, makeDeps({ fromUuid, blfxConditions: () => false })), null);
+
+  const hiding = { name: 'Hiding', flags: {}, statuses: statusSet('hiding') };
+  assert.equal(await chooseOverAaForEffect(hiding, makeDeps({ fromUuid, blfxConditions: () => true })), null);
+});
+
+test('an effect named after a condition counts when it has no status, as in BLFX', async () => {
+  const effect = { name: 'Stunned', flags: {}, statuses: statusSet() };
+  const deps = makeDeps({ fromUuid: async () => null, blfxConditions: () => true });
+  assert.equal(await chooseOverAaForEffect(effect, deps), 'BLFX');
+});
+
+test('concentration effects stay with AA, because BLFX skips them', async () => {
+  const { effect, fromUuid } = makeSpellEffect({ statuses: statusSet('concentrating') });
+  const deps = makeDeps({ fromUuid, blfxConditions: () => true, executor: effectMatch('Bless') });
+  assert.equal(await chooseOverAaForEffect(effect, deps), null);
+});
+
+test('effect from a GPS item with Play Animation on stops AA', async () => {
+  const { effect, fromUuid } = makeSpellEffect({ flags: gpsFlags() });
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps({ fromUuid, blfxConditions: () => true })), 'GPS');
+});
+
+test('effect from a CAT-owned item stops AA, and so does a CAT animation on the effect', async () => {
+  const { effect, fromUuid } = makeSpellEffect();
+  const catUtils = {
+    getCurrentAutomation: () => ({ source: 'chris-premades', config: { animation: { type: 'selectAnimation' } } }),
+    getResolvedAnimation: () => ({ animation: {} }),
+  };
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps({ fromUuid, catUtils, blfxConditions: () => true })), 'CAT');
+
+  const onEffect = { name: 'Aura', flags: { cat: { animation: {} } }, statuses: statusSet() };
+  assert.equal(await chooseOverAaForEffect(onEffect, makeDeps({ fromUuid: async () => null })), 'CAT');
+  assert.equal(await chooseOverAaForEffect(onEffect, makeDeps({ fromUuid: async () => null, catPriority: () => 'off', blfxConditions: () => false })), null);
+});
+
+test('hand-made BLFX animation only claims the effect if it plays on the effect', async () => {
+  const onEffect = makeSpellEffect({ flags: { [BLFX_ID]: { act1: { command: 'play()', eventType: 'After Active Effects' } } } });
+  let deps = makeDeps({ fromUuid: onEffect.fromUuid, blfxConditions: () => true });
+  assert.equal(await chooseOverAaForEffect(onEffect.effect, deps), 'BLFX');
+
+  const onUse = makeSpellEffect({ flags: { [BLFX_ID]: { act1: { command: 'play()', eventType: 'After Activity Use (Default)' } } } });
+  deps = makeDeps({ fromUuid: onUse.fromUuid, blfxConditions: () => true, executor: effectMatch('Bless') });
+  assert.equal(await chooseOverAaForEffect(onUse.effect, deps), null);
+});
+
+test('BLFX auto-rec switched off for the activity leaves the effect with AA', async () => {
+  const { effect, fromUuid } = makeSpellEffect({ flags: { [BLFX_ID]: { act1: { autoRec: { enabled: false } } } } });
+  const deps = makeDeps({ fromUuid, blfxConditions: () => true, executor: effectMatch('Bless') });
+  assert.equal(await chooseOverAaForEffect(effect, deps), null);
+});
+
+test('customized AA config on the effect beats BLFX auto-rec when that setting is on', async () => {
+  const { effect, fromUuid } = makeSpellEffect({ effectFlags: { autoanimations: { isCustomized: true } } });
+  const base = { fromUuid, blfxConditions: () => true, executor: effectMatch('Bless') };
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps({ ...base, aaCustomWins: () => true })), null);
+  assert.equal(await chooseOverAaForEffect(effect, makeDeps(base)), 'BLFX');
+});
+
+test('resolveEffectWorkflow stops AA on a match, and a lookup error leaves it running', async () => {
+  const lines = [];
+  const { effect, fromUuid } = makeSpellEffect();
+  const hit = { item: effect };
+  const deps = makeDeps({ fromUuid, blfxConditions: () => true, executor: effectMatch('Bless'), log: line => lines.push(line) });
+  await resolveEffectWorkflow(hit, {}, deps);
+  assert.equal(hit.stopWorkflow, true);
+  assert.deepEqual(lines, ['Effect Bless -> BLFX']);
+
+  const broken = { item: effect };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await resolveEffectWorkflow(broken, {}, makeDeps({ fromUuid: async () => { throw new Error('boom'); } }));
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(broken.stopWorkflow, undefined);
 });
 
 test('unowned items are left with AA, because BLFX ignores them', async () => {

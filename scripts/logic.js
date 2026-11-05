@@ -1,6 +1,28 @@
 export const BLFX_ID = 'boss-loot-assets-premium';
 export const GPS_ID = 'gambits-premades';
 
+const EFFECT_TRIGGER = 'afterActiveEffects';
+const EFFECT_EVENT_TYPE = 'After Active Effects';
+
+// BLFX keeps this list inside addConditionAnimation, where it cannot be read at runtime.
+// If BLFX adds a condition, AA keeps playing it too until the name is added here.
+const BLFX_CONDITIONS = new Set([
+  'blinded',
+  'charmed',
+  'confused',
+  'deafened',
+  'frightened',
+  'grappled',
+  'incapacitated',
+  'restrained',
+  'paralyzed',
+  'petrified',
+  'poisoned',
+  'silenced',
+  'stunned',
+  'unconscious',
+]);
+
 const dealsDamage = activity => activity.type === 'attack' || activity.type === 'heal' || activity.damage?.parts?.length > 0;
 
 // The BLFX triggers that animate an item use, and whether each one can fire for an activity.
@@ -103,16 +125,89 @@ export async function chooseOverAa(item, activity, deps) {
   return (await hasBlfxAutoRec(deps.executor, item, activity)) ? 'BLFX' : null;
 }
 
+const isItem = document => document?.documentName === 'Item';
+
+// Follows the same steps as getItem in BLFX's hooks.js, which is not exported.
+// BLFX skips concentration effects, and treats an effect with no item as a possible condition.
+async function findEffectSourceItem(effect, fromUuid) {
+  if (effect.statuses?.has('concentrating')) return null;
+  const originUuid = effect.system?.origin?.activity ?? effect.system?.origin?.item ?? effect._source?.origin;
+  const origin = originUuid ? await fromUuid(originUuid) : null;
+  if (isItem(origin?.item)) return origin.item;
+  const parent = origin?.parent;
+  if (isItem(parent)) return parent;
+  if (isItem(origin)) return origin;
+  if (parent?.documentName === 'Actor') {
+    const sourceItem = origin._source?.origin ? await fromUuid(origin._source.origin) : null;
+    return isItem(sourceItem) ? sourceItem : (parent.items?.getName?.(effect.name) ?? null);
+  }
+  if (parent?.documentName === 'ActiveEffect') {
+    const sourceItem = await parent.getSource?.();
+    return isItem(sourceItem) ? sourceItem : null;
+  }
+  const customUuid = effect.flags?.[BLFX_ID]?.blfxCustom?.originItem;
+  const customItem = customUuid ? await fromUuid(customUuid) : null;
+  return isItem(customItem) ? customItem : null;
+}
+
+// Follows the same steps as getActivity in BLFX's hooks.js.
+async function findEffectActivity(item, effect, fromUuid) {
+  const uuid = effect.system?.origin?.activity;
+  if (uuid) return fromUuid(uuid);
+  for (const activity of item.system?.activities ?? []) {
+    if (activity.effects?.some(entry => entry.effect?.name === effect.name)) return activity;
+  }
+  const customUuid = effect.flags?.[BLFX_ID]?.blfxCustom?.originActivity;
+  return customUuid ? fromUuid(customUuid) : null;
+}
+
+function blfxPlaysCondition(effect) {
+  const slug = effect.name?.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).join('-');
+  return BLFX_CONDITIONS.has(effect.statuses?.first?.() ?? slug);
+}
+
+// Returns which engine other than AA takes this effect, or null to leave it with AA.
+// Mirrors what BLFX does when an effect is created, so a null here means BLFX plays nothing.
+export async function chooseOverAaForEffect(effect, deps) {
+  if (deps.catPriority() === 'cat' && effect.flags?.cat?.animation) return 'CAT';
+
+  const item = await findEffectSourceItem(effect, deps.fromUuid);
+  if (!item) return deps.blfxConditions() && blfxPlaysCondition(effect) ? 'BLFX' : null;
+
+  if (gpsAnimationState(item, deps.catUtils) === 'on') return 'GPS';
+  if (catOwnsAnimation(item, deps.catUtils, deps.catPriority())) return 'CAT';
+  if (!item.isEmbedded) return null;
+
+  const activity = await findEffectActivity(item, effect, deps.fromUuid);
+  if (deps.executor.getMacroScript(item, EFFECT_TRIGGER, activity)) {
+    if (!activity) return 'BLFX';
+    const flags = item.flags[BLFX_ID];
+    const eventType = flags[activity.id]?.eventType ?? flags[activity.name]?.eventType;
+    return eventType === EFFECT_EVENT_TYPE ? 'BLFX' : null;
+  }
+  if (deps.aaCustomWins() && isAaCustomized(effect)) return null;
+  if (!activity || !deps.executor.isAutoRecognitionEnabled(item, EFFECT_TRIGGER, activity)) return null;
+  const match = await deps.executor.getAutoRecognitionAnimation({ item, activity, trigger: EFFECT_TRIGGER });
+  return typeof match?.macro === 'function' ? 'BLFX' : null;
+}
+
 // Any failure leaves AA running: a double animation is better than a missing one.
-export async function resolveWorkflow(data, animationData, deps) {
-  const { item, activity } = data;
+async function resolve(data, label, animationData, deps, choose) {
   let engine = null;
   try {
-    engine = await chooseOverAa(item, activity, deps);
+    engine = await choose();
   } catch (error) {
-    console.warn('blfx-aa-bridge | Lookup failed, leaving this item with AA', item.name, error);
+    console.warn(`blfx-aa-bridge | Lookup failed, leaving ${label} with AA`, error);
   }
   if (engine) data.stopWorkflow = true;
   // After the await, every other hook has run, so a stop we did not set came from CAT.
-  deps.log(`${item.name} -> ${engine ?? (data.stopWorkflow ? 'CAT' : animationData ? 'AA' : 'no AA match')}`);
+  deps.log(`${label} -> ${engine ?? (data.stopWorkflow ? 'CAT' : animationData ? 'AA' : 'no AA match')}`);
+}
+
+export function resolveWorkflow(data, animationData, deps) {
+  return resolve(data, data.item.name, animationData, deps, () => chooseOverAa(data.item, data.activity, deps));
+}
+
+export function resolveEffectWorkflow(data, animationData, deps) {
+  return resolve(data, `Effect ${data.item.name}`, animationData, deps, () => chooseOverAaForEffect(data.item, deps));
 }
