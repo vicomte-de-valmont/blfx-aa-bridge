@@ -113,5 +113,6 @@ export async function resolveWorkflow(data, animationData, deps) {
     console.warn('blfx-aa-bridge | Lookup failed, leaving this item with AA', item.name, error);
   }
   if (engine) data.stopWorkflow = true;
-  deps.log(`${item.name} -> ${engine ?? (animationData ? 'AA' : 'no AA match')}`);
+  // After the await, every other hook has run, so a stop we did not set came from CAT.
+  deps.log(`${item.name} -> ${engine ?? (data.stopWorkflow ? 'CAT' : animationData ? 'AA' : 'no AA match')}`);
 }

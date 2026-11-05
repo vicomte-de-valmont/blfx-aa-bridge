@@ -193,6 +193,21 @@ test('resolveWorkflow stops AA on a match and leaves it running otherwise', asyn
   assert.equal(missData.stopWorkflow, undefined);
 });
 
+test('the debug log names the engine that took the item', async () => {
+  const lines = [];
+  const deps = makeDeps({ log: line => lines.push(line) });
+  const { item, activity } = makeItem({ name: 'Misty Step' });
+
+  const stoppedByCat = { item, activity };
+  const pending = resolveWorkflow(stoppedByCat, {}, deps);
+  stoppedByCat.stopWorkflow = true; // CAT's hook runs in the same callAll, before the lookup resolves.
+  await pending;
+
+  await resolveWorkflow({ item, activity }, {}, deps);
+  await resolveWorkflow({ item, activity }, undefined, deps);
+  assert.deepEqual(lines, ['Misty Step -> CAT', 'Misty Step -> AA', 'Misty Step -> no AA match']);
+});
+
 test('a BLFX lookup error leaves AA running', async () => {
   const executor = fakeExecutor();
   executor.getAutoRecognitionAnimation = async () => {
