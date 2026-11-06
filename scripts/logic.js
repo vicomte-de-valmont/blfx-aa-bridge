@@ -23,6 +23,8 @@ const BLFX_CONDITIONS = new Set([
   'unconscious',
 ]);
 
+const isItem = document => document?.documentName === 'Item';
+
 const dealsDamage = activity => activity.type === 'attack' || activity.type === 'heal' || activity.damage?.parts?.length > 0;
 
 // The BLFX triggers that animate an item use, and whether each one can fire for an activity.
@@ -90,11 +92,26 @@ export function isAaCustomized(item, activity) {
   return Boolean(activity?.flags?.autoanimations?.isCustomized || item.flags?.autoanimations?.isCustomized);
 }
 
+// dnd5e runs preUseActivity on a temporary copy of the item. BLFX and AA read that copy during
+// the use, but the real item once a template or effect appears, so both need the change.
+function itemVersions(item) {
+  const real = item.actor?.items?.get(item.id);
+  return real && real !== item ? [item, real] : [item];
+}
+
 // In-memory only, like CAT's own override: the change is never saved to the item.
 function setBlfxAutoRec(item, activity, enabled) {
-  const flags = (item.flags[BLFX_ID] ??= {});
-  const entry = (flags[activity.id] ??= {});
-  entry.autoRec = { ...entry.autoRec, enabled };
+  for (const version of itemVersions(item)) {
+    const flags = (version.flags[BLFX_ID] ??= {});
+    const entry = (flags[activity.id] ??= {});
+    entry.autoRec = { ...entry.autoRec, enabled };
+  }
+}
+
+function enableAa(item) {
+  for (const version of itemVersions(item)) {
+    if (version.flags.autoanimations?.isEnabled === false) version.flags.autoanimations.isEnabled = true;
+  }
 }
 
 // Runs just before an item is used, so that BLFX and AA read the adjusted flags.
@@ -105,7 +122,7 @@ export function prepareItemUse(activity, deps) {
 
   if (gps === 'off' && deps.gpsFallback()) {
     setBlfxAutoRec(item, activity, true);
-    if (item.flags.autoanimations?.isEnabled === false) item.flags.autoanimations.isEnabled = true;
+    enableAa(item);
     return;
   }
   if (hasHandmadeBlfx(deps.executor, item, activity)) return;
@@ -113,6 +130,19 @@ export function prepareItemUse(activity, deps) {
     setBlfxAutoRec(item, activity, false);
   } else if (deps.aaCustomWins() && isAaCustomized(item, activity)) {
     setBlfxAutoRec(item, activity, false);
+  }
+}
+
+// Runs just before an effect is created. When a player casts, the GM's client often creates the
+// effect, and that client never ran prepareItemUse. This has to stay synchronous.
+export function prepareEffectCreation(effect, deps) {
+  const uuid = effect.system?.origin?.activity ?? effect.system?.origin?.item ?? effect._source?.origin;
+  const origin = uuid ? deps.fromUuidSync(uuid) : null;
+  const item = isItem(origin?.item) ? origin.item : isItem(origin) ? origin : null;
+  if (!item?.flags) return;
+  if (gpsAnimationState(item, deps.catUtils) !== 'on' && !catOwnsAnimation(item, deps.catUtils, deps.catPriority())) return;
+  for (const activity of isItem(origin) ? (item.system?.activities ?? []) : [origin]) {
+    if (!hasHandmadeBlfx(deps.executor, item, activity)) setBlfxAutoRec(item, activity, false);
   }
 }
 
@@ -124,8 +154,6 @@ export async function chooseOverAa(item, activity, deps) {
   if (deps.aaCustomWins() && isAaCustomized(item, activity)) return null;
   return (await hasBlfxAutoRec(deps.executor, item, activity)) ? 'BLFX' : null;
 }
-
-const isItem = document => document?.documentName === 'Item';
 
 // Follows the same steps as getItem in BLFX's hooks.js, which is not exported.
 // BLFX skips concentration effects, and treats an effect with no item as a possible condition.

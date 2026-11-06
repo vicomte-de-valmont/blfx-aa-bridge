@@ -1,4 +1,4 @@
-import { BLFX_ID, prepareItemUse, resolveEffectWorkflow, resolveWorkflow } from './logic.js';
+import { BLFX_ID, prepareEffectCreation, prepareItemUse, resolveEffectWorkflow, resolveWorkflow } from './logic.js';
 
 const MODULE_ID = 'blfx-aa-bridge';
 const EXECUTOR_PATH = `modules/${BLFX_ID}/scripts/apps/BlfxMacroExecutor.js`;
@@ -50,6 +50,7 @@ Hooks.once('ready', async () => {
     aaCustomWins: () => game.settings.get(MODULE_ID, 'aaCustomWins'),
     blfxConditions: () => game.settings.get(BLFX_ID, 'blfxConditionAnimation'),
     fromUuid: uuid => globalThis.fromUuid(uuid),
+    fromUuidSync: uuid => globalThis.fromUuidSync(uuid, { strict: false }),
     log: message => {
       if (game.settings.get(MODULE_ID, 'debug')) console.log(`${MODULE_ID} | ${message}`);
     },
@@ -60,6 +61,14 @@ Hooks.once('ready', async () => {
       prepareItemUse(activity, deps);
     } catch (error) {
       console.warn(`${MODULE_ID} | Could not prepare item use`, activity?.item?.name, error);
+    }
+  });
+
+  Hooks.on('preCreateActiveEffect', effect => {
+    try {
+      prepareEffectCreation(effect, deps);
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Could not prepare effect`, effect?.name, error);
     }
   });
 

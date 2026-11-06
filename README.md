@@ -33,6 +33,17 @@ This applies when an effect starts on a token:
 
 A spell's cast and its lingering effect are decided separately, so BLFX can play the cast and AA the effect.
 
+## CPR spells with only a generic cast animation
+
+CAT's item check can't see CPR's generic cast animations, such as the ones on Haste and Burning Hands. Those spells aren't fully owned by CAT:
+
+| Type of spell | Example | Who animates |
+|---|---|---|
+| CAT has its own effect or spell animation | Bless, Shield of Faith | CAT only |
+| CAT only has a generic cast animation | Haste, Burning Hands | BLFX at the effect or template, plus CAT's cast if it gets to play |
+
+To use only BLFX on a spell like this, set its CAT animation to None in CatKit.
+
 ## Recommended settings
 
 | Module | Setting | Value |
@@ -50,6 +61,7 @@ A spell's cast and its lingering effect are decided separately, so BLFX can play
 ## Limits
 
 - BLFX's list of condition animations can't be read at runtime, so the bridge has its own copy. If BLFX adds a condition, AA keeps playing it too until the bridge is updated.
+- The bridge's switches stay in memory until the item next updates. If you open BLFX's Animation Editor on a CAT or GPS item after using it and press Save, auto-rec can be stored as off.
 - A hand-made BLFX animation on an item that CAT or GPS also animates plays alongside them. Set the CAT animation to None, or untick Play Animation.
 - It reads BLFX's internal `BlfxMacroExecutor.js`, which is not a public API, and follows BLFX's steps for finding an effect's source item. If a BLFX update changes these, AA can play alongside BLFX until the bridge is updated. If the file itself changes, the GM also gets a warning.
 

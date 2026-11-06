@@ -2,11 +2,11 @@
   "id": "blfx-aa-bridge",
   "title": "BLFX-AA Bridge",
   "description": "Plays one animation per item use and per effect: CAT/GPS first, then BLFX, with Automated Animations as the fallback. New BLFX auto-rec entries take over from AA automatically.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "authors": [{ "name": "Valmont" }],
   "url": "https://github.com/vicomte-de-valmont/blfx-aa-bridge",
   "manifest": "https://github.com/vicomte-de-valmont/blfx-aa-bridge/releases/latest/download/module.json",
-  "download": "https://github.com/vicomte-de-valmont/blfx-aa-bridge/releases/download/v1.1.0/module.zip",
+  "download": "https://github.com/vicomte-de-valmont/blfx-aa-bridge/releases/download/v1.1.1/module.zip",
   "compatibility": {
     "minimum": "14",
     "verified": "14.369",

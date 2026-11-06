@@ -4,6 +4,7 @@ import {
   chooseOverAa,
   chooseOverAaForEffect,
   gpsAnimationState,
+  prepareEffectCreation,
   prepareItemUse,
   resolveEffectWorkflow,
   resolveWorkflow,
@@ -344,6 +345,71 @@ test('resolveEffectWorkflow stops AA on a match, and a lookup error leaves it ru
     console.warn = warn;
   }
   assert.equal(broken.stopWorkflow, undefined);
+});
+
+// dnd5e's use() hands preUseActivity a clone of the item, while the actor keeps the real one.
+function makeCastCopy(flags) {
+  const real = makeItem({ flags: structuredClone(flags) });
+  const copy = makeItem({ flags: structuredClone(flags) });
+  real.item.documentName = copy.item.documentName = 'Item';
+  real.item.id = copy.item.id = 'item1';
+  const actor = { items: { get: id => (id === 'item1' ? real.item : undefined) } };
+  real.item.actor = copy.item.actor = actor;
+  return { real, copy };
+}
+
+const catOwner = {
+  getCurrentAutomation: () => ({ source: 'chris-premades', config: { animation: { type: 'selectAnimation' } } }),
+  getResolvedAnimation: () => ({ animation: {} }),
+};
+
+test('switching BLFX off for CAT also reaches the real item, not only the cast copy', () => {
+  const { real, copy } = makeCastCopy({});
+  prepareItemUse(copy.activity, makeDeps({ catUtils: catOwner }));
+  assert.equal(copy.item.flags[BLFX_ID].act1.autoRec.enabled, false);
+  assert.equal(real.item.flags[BLFX_ID].act1.autoRec.enabled, false);
+});
+
+test('GPS fallback also reaches the real item, for both BLFX and AA', () => {
+  const { real, copy } = makeCastCopy(gpsFlags());
+  const catUtils = { getConfigValues: () => ({ playAnimation: false }) };
+  prepareItemUse(copy.activity, makeDeps({ catUtils }));
+  assert.equal(real.item.flags[BLFX_ID].act1.autoRec.enabled, true);
+  assert.equal(real.item.flags.autoanimations.isEnabled, true);
+});
+
+test('a generic-cast CPR spell is left alone, so BLFX keeps its effect', () => {
+  const { real, copy } = makeCastCopy({ cat: { automation: { source: 'chris-premades' } } });
+  const catUtils = { getCurrentAutomation: () => ({ source: 'chris-premades', config: {} }) };
+  prepareItemUse(copy.activity, makeDeps({ catUtils }));
+  assert.equal(real.item.flags[BLFX_ID], undefined);
+});
+
+test('an effect created on the GM client still keeps BLFX out of a CAT-owned spell', () => {
+  const { real } = makeCastCopy({});
+  const effect = { name: 'Bless', flags: {}, system: { origin: { activity: 'Activity.uuid' } } };
+  const fromUuidSync = uuid => (uuid === 'Activity.uuid' ? real.activity : null);
+  prepareEffectCreation(effect, makeDeps({ catUtils: catOwner, fromUuidSync }));
+  assert.equal(real.item.flags[BLFX_ID].act1.autoRec.enabled, false);
+});
+
+test('an effect from an item origin covers every activity, and hand-made animations stay', () => {
+  const { real } = makeCastCopy({ [BLFX_ID]: { act2: { command: 'play()' } } });
+  real.item.system.activities.push({ id: 'act2', type: 'utility' });
+  const effect = { name: 'Bless', flags: {}, system: { origin: { item: 'Item.uuid' } } };
+  prepareEffectCreation(effect, makeDeps({ catUtils: catOwner, fromUuidSync: () => real.item }));
+  assert.equal(real.item.flags[BLFX_ID].act1.autoRec.enabled, false);
+  assert.equal(real.item.flags[BLFX_ID].act2.autoRec, undefined);
+});
+
+test('effect creation leaves BLFX alone on spells without a CAT or GPS animation', () => {
+  const { real } = makeCastCopy({});
+  const effect = { name: 'Haste', flags: {}, system: { origin: { activity: 'Activity.uuid' } } };
+  prepareEffectCreation(effect, makeDeps({ fromUuidSync: () => real.activity }));
+  assert.equal(real.item.flags[BLFX_ID], undefined);
+
+  const noOrigin = { name: 'Frightened', flags: {}, system: {} };
+  assert.doesNotThrow(() => prepareEffectCreation(noOrigin, makeDeps({ fromUuidSync: () => null })));
 });
 
 test('unowned items are left with AA, because BLFX ignores them', async () => {
